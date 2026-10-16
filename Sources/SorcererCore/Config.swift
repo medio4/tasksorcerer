@@ -7,17 +7,15 @@ public struct ListPair: Codable, Identifiable, Hashable {
     public var appleTitle: String
     public var googleListID: String
     public var googleTitle: String
-    public var dateMode: DateMode
     public var enabled: Bool
 
     public init(id: UUID = UUID(), appleCalendarID: String, appleTitle: String,
-                googleListID: String, googleTitle: String, dateMode: DateMode = .scheduled, enabled: Bool = true) {
+                googleListID: String, googleTitle: String, enabled: Bool = true) {
         self.id = id
         self.appleCalendarID = appleCalendarID
         self.appleTitle = appleTitle
         self.googleListID = googleListID
         self.googleTitle = googleTitle
-        self.dateMode = dateMode
         self.enabled = enabled
     }
 
@@ -70,16 +68,6 @@ public struct SyncRecord: Codable, Equatable {
     public var appleID: String
     public var googleID: String
     public var base: Snapshot
-    /// The pair's date mode when `base` was taken. nil in records saved before this was
-    /// stored, which predate due mode being used, so they're read as `.scheduled`.
-    public var dateMode: DateMode?
-
-    public init(appleID: String, googleID: String, base: Snapshot, dateMode: DateMode?) {
-        self.appleID = appleID
-        self.googleID = googleID
-        self.base = base
-        self.dateMode = dateMode
-    }
 }
 
 public struct SyncState: Codable, Equatable {

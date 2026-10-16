@@ -23,11 +23,9 @@ public struct PairReport {
 /// stored at the last sync.
 public final class SyncEngine {
     public var config: AppConfig
-    private let now: () -> Date
 
-    public init(config: AppConfig, now: @escaping () -> Date = Date.init) {
+    public init(config: AppConfig) {
         self.config = config
-        self.now = now
     }
 
     // MARK: - Planning types
@@ -49,7 +47,7 @@ public final class SyncEngine {
         var changes: [String] = []
     }
 
-    /// A task reduced to the values we compare, with the date chosen according to `DateMode`.
+    /// A task reduced to the values we compare.
     struct View {
         var title: String
         var notes: String
@@ -97,7 +95,7 @@ public final class SyncEngine {
                 if let w = step.apple { appleID = try await perform(w, on: apple) ?? appleID }
                 if let w = step.google { googleID = try await perform(w, on: google) ?? googleID }
                 if let base = step.newBase, let appleID, let googleID {
-                    out.append(SyncRecord(appleID: appleID, googleID: googleID, base: base, dateMode: pair.dateMode))
+                    out.append(SyncRecord(appleID: appleID, googleID: googleID, base: base))
                 }
                 report.changes += step.changes
             } catch {
@@ -107,7 +105,7 @@ public final class SyncEngine {
                     out.append(old)
                 } else if let base = step.newBase, let appleID, let googleID {
                     // Both sides exist now; record the pairing so a retry doesn't duplicate the task.
-                    out.append(SyncRecord(appleID: appleID, googleID: googleID, base: base, dateMode: pair.dateMode))
+                    out.append(SyncRecord(appleID: appleID, googleID: googleID, base: base))
                 }
             }
         }
@@ -131,7 +129,6 @@ public final class SyncEngine {
     // MARK: - Planning
 
     func plan(pair: ListPair, appleTasks: [RawTask], googleTasks: [RawTask], records: [SyncRecord]) -> [Step] {
-        let mode = pair.dateMode
         let aByID = Dictionary(appleTasks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let gByID = Dictionary(googleTasks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var usedA = Set<String>()
@@ -147,13 +144,13 @@ public final class SyncEngine {
             case let (a?, nil):
                 // Deleted in Google. Delete in Apple unless it was edited there since the last sync,
                 // in which case it is treated as new and re-created in Google.
-                if appleView(a, mode).snapshot == rec.base {
+                if view(a).snapshot == rec.base {
                     usedA.insert(a.id)
                     steps.append(Step(appleID: a.id, apple: .delete(a.id), oldRecord: rec,
                                       changes: ["✕ Apple: “\(a.title)” (deleted in Google)"]))
                 }
             case let (nil, g?):
-                if googleView(g).snapshot == rec.base {
+                if view(g).snapshot == rec.base {
                     usedG.insert(g.id)
                     steps.append(Step(googleID: g.id, google: .delete(g.id), oldRecord: rec,
                                       changes: ["✕ Google: “\(g.title)” (deleted in Apple)"]))
@@ -161,8 +158,7 @@ public final class SyncEngine {
             case let (a?, g?):
                 usedA.insert(a.id)
                 usedG.insert(g.id)
-                steps.append(merge(apple: a, google: g, base: rec.base, mode: mode, oldRecord: rec,
-                                   modeChanged: (rec.dateMode ?? .scheduled) != mode))
+                steps.append(merge(apple: a, google: g, base: rec.base, oldRecord: rec))
             }
         }
 
@@ -172,42 +168,32 @@ public final class SyncEngine {
         // Pair up tasks that already exist on both sides (typically on the first sync)
         // instead of duplicating them.
         for a in unmatchedA {
-            let va = appleView(a, mode)
+            let va = view(a)
             let key = Self.matchKey(a.title)
             guard let idx = unmatchedG.firstIndex(where: {
                 Self.matchKey($0.title) == key && (va.date == nil || $0.scheduled == nil || $0.scheduled?.dayKey == va.date?.dayKey)
             }) else { continue }
             let g = unmatchedG.remove(at: idx)
             unmatchedA.removeAll { $0.id == a.id }
-            steps.append(merge(apple: a, google: g, base: nil, mode: mode, oldRecord: nil))
+            steps.append(merge(apple: a, google: g, base: nil, oldRecord: nil))
         }
 
         for a in unmatchedA where config.copyCompletedTasks || !a.completed {
-            steps.append(createFromApple(a, mode: mode))
+            steps.append(createFromApple(a))
         }
         for g in unmatchedG where config.copyCompletedTasks || !g.completed {
-            steps.append(createFromGoogle(g, mode: mode))
+            steps.append(createFromGoogle(g))
         }
         return steps
     }
 
-    func appleView(_ t: RawTask, _ mode: DateMode) -> View {
-        let date: TaskDate?
-        switch mode {
-        case .scheduled: date = t.scheduled
-        case .due: date = DueLine.parse(notes: t.notes, today: now())?.date
-        }
-        return View(title: t.title, notes: t.notes.normalizedNotes, date: date, completed: t.completed)
-    }
-
-    func googleView(_ t: RawTask) -> View {
+    func view(_ t: RawTask) -> View {
         View(title: t.title, notes: t.notes.normalizedNotes, date: t.scheduled, completed: t.completed)
     }
 
-    private func merge(apple a: RawTask, google g: RawTask, base: Snapshot?, mode: DateMode, oldRecord: SyncRecord?,
-                       modeChanged: Bool = false) -> Step {
-        let va = appleView(a, mode)
-        let vg = googleView(g)
+    private func merge(apple a: RawTask, google g: RawTask, base: Snapshot?, oldRecord: SyncRecord?) -> Step {
+        let va = view(a)
+        let vg = view(g)
         let appleWins: Bool
         switch config.conflictPolicy {
         case .apple: appleWins = true
@@ -227,63 +213,44 @@ public final class SyncEngine {
         let title = pick(base?.title, va.title, vg.title)
         let notes = pick(base?.notes, va.notes, vg.notes)
         let completed = pick(base?.completed, va.completed, vg.completed)
-        let dayKey: String?
-        if modeChanged {
-            // The base date was read from the other Apple field, so a missing date on the Apple
-            // side just means the newly synced field hasn't been filled in yet, not a deletion.
-            switch (va.date?.dayKey, vg.date?.dayKey) {
-            case let (x?, y?): dayKey = pick(nil, x, y)
-            case let (x, y): dayKey = x ?? y
-            }
-        } else {
-            dayKey = pick(base.map { $0.dayKey }, va.date?.dayKey, vg.date?.dayKey)
-        }
+        let dayKey = pick(base.map { $0.dayKey }, va.date?.dayKey, vg.date?.dayKey)
         let date: TaskDate? = dayKey == nil ? nil : (dayKey == va.date?.dayKey ? va.date : vg.date)
 
         return buildStep(title: title, notes: notes, date: date, completed: completed,
-                         apple: a, google: g, mode: mode, oldRecord: oldRecord)
+                         apple: a, google: g, oldRecord: oldRecord)
     }
 
-    private func createFromApple(_ a: RawTask, mode: DateMode) -> Step {
-        let v = appleView(a, mode)
+    private func createFromApple(_ a: RawTask) -> Step {
+        let v = view(a)
         return buildStep(title: v.title, notes: v.notes, date: v.date, completed: v.completed,
-                         apple: a, google: nil, mode: mode, oldRecord: nil)
+                         apple: a, google: nil, oldRecord: nil)
     }
 
-    private func createFromGoogle(_ g: RawTask, mode: DateMode) -> Step {
-        let v = googleView(g)
+    private func createFromGoogle(_ g: RawTask) -> Step {
+        let v = view(g)
         return buildStep(title: v.title, notes: v.notes, date: v.date, completed: v.completed,
-                         apple: nil, google: g, mode: mode, oldRecord: nil)
+                         apple: nil, google: g, oldRecord: nil)
     }
 
     /// Turns the merged values into writes for whichever side differs from them.
     private func buildStep(title: String, notes: String, date: TaskDate?, completed: Bool,
-                           apple a: RawTask?, google g: RawTask?, mode: DateMode, oldRecord: SyncRecord?) -> Step {
-        let appleCurrentDate = a.map { appleView($0, mode).date } ?? nil
+                           apple a: RawTask?, google g: RawTask?, oldRecord: SyncRecord?) -> Step {
+        let appleCurrentDate = a?.scheduled
         // Google has no time of day; keep the time Apple already had when only the day moved.
         var date = date
         if let d = date, !d.hasTime, let t = appleCurrentDate, t.hasTime {
             date = d.withTime(hour: t.hour, minute: t.minute)
         }
 
-        var targetNotes = notes
-        if mode == .due {
-            targetNotes = DueLine.apply(date, to: notes, today: now()).normalizedNotes
-        }
-
-        var appleTarget = RawTask(id: a?.id ?? "", title: title, notes: targetNotes, completed: completed)
-        switch mode {
-        case .scheduled: appleTarget.scheduled = date
-        case .due: appleTarget.scheduled = a?.scheduled
-        }
-        let googleTarget = RawTask(id: g?.id ?? "", title: title, notes: targetNotes,
+        let appleTarget = RawTask(id: a?.id ?? "", title: title, notes: notes, scheduled: date, completed: completed)
+        let googleTarget = RawTask(id: g?.id ?? "", title: title, notes: notes,
                                    scheduled: date?.dayOnly(), completed: completed)
 
         var step = Step(appleID: a?.id, googleID: g?.id, oldRecord: oldRecord)
-        step.newBase = Snapshot(title: title, notes: targetNotes, dayKey: date?.dayKey, completed: completed)
+        step.newBase = Snapshot(title: title, notes: notes, dayKey: date?.dayKey, completed: completed)
 
         if let a {
-            let fields = Self.changedFields(a, appleTarget, compareTime: mode == .scheduled)
+            let fields = Self.changedFields(a, appleTarget, compareTime: true)
             if !fields.isEmpty {
                 step.apple = .update(appleTarget)
                 step.changes.append("✎ Apple: “\(title)” (\(fields.joined(separator: ", ")))")

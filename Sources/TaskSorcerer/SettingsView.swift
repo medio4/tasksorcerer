@@ -59,8 +59,7 @@ struct SettingsView: View {
         } header: {
             Text("Synced lists")
         } footer: {
-            Text("“Scheduled date” syncs the reminder's date with the Google task's date. "
-                 + "“Due line in notes” syncs the Google date with a “Due: MM-DD-YY” line at the top of the reminder's notes instead.")
+            Text("Each reminder's date syncs with its Google task's date.")
         }
     }
 
@@ -109,10 +108,6 @@ struct PairRow: View {
                 Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
                     .buttonStyle(.borderless)
             }
-            Picker("Sync Google's date with", selection: $pair.dateMode) {
-                ForEach(DateMode.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
         }
         .padding(.vertical, 4)
     }

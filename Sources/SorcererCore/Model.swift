@@ -45,22 +45,6 @@ public struct TaskDate: Codable, Hashable, CustomStringConvertible {
     }
 }
 
-/// Which field of an Apple reminder is synced with Google's (date-only, "scheduled") date.
-public enum DateMode: String, Codable, CaseIterable, Identifiable {
-    /// The reminder's own date (what puts it in Reminders' "Scheduled" list).
-    case scheduled
-    /// The "Due: MM-DD-YY" line at the top of the reminder's notes.
-    case due
-
-    public var id: String { rawValue }
-    public var label: String {
-        switch self {
-        case .scheduled: return "Scheduled date"
-        case .due: return "Due line in notes"
-        }
-    }
-}
-
 /// What to do when both sides changed the same field since the last sync.
 public enum ConflictPolicy: String, Codable, CaseIterable, Identifiable {
     case newest, apple, google
@@ -76,7 +60,7 @@ public enum ConflictPolicy: String, Codable, CaseIterable, Identifiable {
 }
 
 /// A task as either service sees it, reduced to the fields we sync.
-/// `scheduled` is the service's native date (Apple's reminder date, Google's `due`).
+/// `scheduled` is the service's date (Apple's reminder date, Google's `due`).
 public struct RawTask: Equatable {
     public var id: String
     public var title: String

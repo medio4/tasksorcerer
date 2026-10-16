@@ -9,7 +9,7 @@ sorcerer — sync Apple Reminders with Google Tasks
   sorcerer auth                                         Sign in to Google in the browser
   sorcerer signout                                      Forget the Google sign-in
   sorcerer lists                                        Show Reminders lists and Google Tasks lists
-  sorcerer pair "<Reminders list>" "<Google list>" [--mode scheduled|due]
+  sorcerer pair "<Reminders list>" "<Google list>"
   sorcerer unpair "<Reminders list>"                    Stop syncing a Reminders list
   sorcerer pairs                                        Show synced list pairs
   sorcerer set <conflict newest|apple|google | copy-completed on|off | max-deletes N>
@@ -22,11 +22,6 @@ let coordinator = SyncCoordinator(storage: storage)
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(1)
-}
-
-func option(_ name: String, in args: [String]) -> String? {
-    guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
-    return args[i + 1]
 }
 
 func findList(_ name: String, in lists: [ListInfo]) -> ListInfo {
@@ -71,17 +66,16 @@ func run() async throws {
 
     case "pair":
         guard args.count >= 3 else { fail(usage) }
-        let mode = option("--mode", in: args).map { DateMode(rawValue: $0) ?? { fail("--mode must be scheduled or due") }() } ?? .scheduled
         try await coordinator.reminders.requestAccess()
         coordinator.refreshGoogleClient(for: config)
         let apple = findList(args[1], in: coordinator.reminders.lists())
         let google = findList(args[2], in: try await coordinator.google.lists())
         config.pairs.removeAll { $0.appleCalendarID == apple.id || $0.googleListID == google.id }
         let pair = ListPair(appleCalendarID: apple.id, appleTitle: apple.title,
-                            googleListID: google.id, googleTitle: google.title, dateMode: mode)
+                            googleListID: google.id, googleTitle: google.title)
         config.pairs.append(pair)
         try storage.saveConfig(config)
-        print("Paired \(pair.label) using \(mode.label.lowercased()). Try: sorcerer sync --dry-run")
+        print("Paired \(pair.label). Try: sorcerer sync --dry-run")
 
     case "unpair":
         guard args.count == 2 else { fail(usage) }
@@ -93,7 +87,7 @@ func run() async throws {
     case "pairs":
         if config.pairs.isEmpty { print("No lists paired yet. Use `sorcerer pair`.") }
         for p in config.pairs {
-            print("  \(p.enabled ? "●" : "○") \(p.label)  [\(p.dateMode.label)]")
+            print("  \(p.enabled ? "●" : "○") \(p.label)")
         }
         print("\nConflicts: \(config.conflictPolicy.label) · copy completed: \(config.copyCompletedTasks ? "on" : "off")"
               + " · max deletes per sync: \(config.maxDeletesPerSync)")

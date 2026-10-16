@@ -8,14 +8,10 @@ Two-way sync between Apple Reminders and Google Tasks, as a macOS menu-bar app
 | | Apple Reminders | Google Tasks |
 |---|---|---|
 | Title, notes, completed | ⇄ | ⇄ |
-| **Scheduled mode** (default): reminder date | ⇄ | task date (`due`, date only) |
-| **Due mode**: `Due:` line at the top of the notes | ⇄ | task date |
+| Reminder date | ⇄ | task date (`due`, date only) |
 
-- **Due line format:** `Due: MM-DD-YY` with an optional time, e.g. `Due: 10-20-26` or
-  `Due: 10-20-26 5:30 PM`. The year and time are optional when you type it (`due 10/20 5pm`
-  works). In due mode, a line without a year gets the year filled in the next time it syncs,
-  so the date can't later be read as a different year.
-- In **scheduled mode** the due line is ordinary note text, so it's carried over to Google unchanged.
+- **Deadlines:** Google Tasks' API only exposes a task's date, not the separate deadline you can
+  set in the Google Tasks app, so deadlines can't be synced.
 - **Times:** Google Tasks' API stores dates without a time. If only the time changes in Apple,
   nothing is sent to Google. When the day changes in Google, the reminder keeps its time
   (and its alarm moves with it).
@@ -70,7 +66,7 @@ The refresh token is stored in your login keychain. Config and sync state live i
 
 ## Using it
 
-Menu-bar app: **Settings…** → add list pairs and pick each pair's date mode. Use
+Menu-bar app: **Settings…** → add list pairs. Use
 **Preview Changes…** to see what a sync would do before letting it run. It syncs every 5 minutes
 (configurable) and about 15 seconds after you edit a reminder.
 
@@ -78,14 +74,14 @@ CLI:
 
 ```bash
 ./build/sorcerer lists                          # show both sides' list names
-./build/sorcerer pair "Reminders" "My Tasks"    # add --mode due to sync the Due: line instead
+./build/sorcerer pair "Reminders" "My Tasks"
 ./build/sorcerer sync --dry-run                 # preview
 ./build/sorcerer sync
 ```
 
 ## Layout
 
-- `Sources/SorcererCore`: sync engine, due-line parser, Google Tasks + OAuth, EventKit.
+- `Sources/SorcererCore`: sync engine, Google Tasks + OAuth, EventKit.
   It has no UI code, so an iPhone companion app can reuse it.
 - `Sources/TaskSorcerer`: SwiftUI menu-bar app.
 - `Sources/sorcerer`: CLI.
