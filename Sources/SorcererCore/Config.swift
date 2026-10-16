@@ -70,6 +70,16 @@ public struct SyncRecord: Codable, Equatable {
     public var appleID: String
     public var googleID: String
     public var base: Snapshot
+    /// The pair's date mode when `base` was taken. nil in records saved before this was
+    /// stored, which predate due mode being used, so they're read as `.scheduled`.
+    public var dateMode: DateMode?
+
+    public init(appleID: String, googleID: String, base: Snapshot, dateMode: DateMode?) {
+        self.appleID = appleID
+        self.googleID = googleID
+        self.base = base
+        self.dateMode = dateMode
+    }
 }
 
 public struct SyncState: Codable, Equatable {
